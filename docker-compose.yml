@@ -1,0 +1,61 @@
+services:
+  ocr-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ocr-portal
+    restart: unless-stopped
+
+    ports:
+      - "8080:8080"
+
+    env_file:
+      - .env
+
+    environment:
+      APP_ENV: "production"
+      APP_PORT: "8080"
+
+      DATABASE_URL: "postgresql://ocr_user:${POSTGRES_PASSWORD}@postgres:5432/ocr_portal"
+      QUEUE_URL: "redis://redis:6379/0"
+
+      REPOS_CACHE_DIR: "/data/repos"
+      REVIEWS_DIR: "/data/reviews"
+      LOGS_DIR: "/data/logs"
+
+    volumes:
+      - ocr-data:/data
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16
+    container_name: ocr-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: "ocr_portal"
+      POSTGRES_USER: "ocr_user"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocr_user -d ocr_portal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ocr-redis
+    restart: unless-stopped
+
+volumes:
+  ocr-data:
+  postgres-data:

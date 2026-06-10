@@ -1,0 +1,22 @@
+{
+  "name": "ocr-portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI Review Hub - self-hosted portal for AI code reviews powered by Alibaba Open Code Review",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.34.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
+    "ioredis": "^5.4.2",
+    "pg": "^8.13.1"
+  }
+}
