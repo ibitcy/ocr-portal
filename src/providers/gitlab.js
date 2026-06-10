@@ -1,5 +1,12 @@
 'use strict';
 
+/** Case-insensitive substring match across any of the given fields. */
+function matches(search, ...fields) {
+  if (!search) return true;
+  const q = search.toLowerCase();
+  return fields.some((f) => String(f ?? '').toLowerCase().includes(q));
+}
+
 /**
  * GitLab / self-hosted GitLab API client.
  * Repository ids are numeric GitLab project ids.
@@ -26,9 +33,11 @@ class GitLabProvider {
     return res.json();
   }
 
-  async listRepositories() {
+  // Projects and branches use GitLab's native `search` parameter.
+  async listRepositories(search) {
     const projects = await this.request(
-      '/projects?membership=true&per_page=100&order_by=last_activity_at&simple=true'
+      '/projects?membership=true&per_page=100&order_by=last_activity_at&simple=true' +
+        (search ? `&search=${encodeURIComponent(search)}` : '')
     );
     return projects.map((p) => ({
       id: String(p.id),
@@ -38,24 +47,29 @@ class GitLabProvider {
     }));
   }
 
-  async listBranches(repoId) {
+  async listBranches(repoId, search) {
     const branches = await this.request(
-      `/projects/${encodeURIComponent(repoId)}/repository/branches?per_page=100`
+      `/projects/${encodeURIComponent(repoId)}/repository/branches?per_page=100` +
+        (search ? `&search=${encodeURIComponent(search)}` : '')
     );
     return branches.map((b) => ({ name: b.name }));
   }
 
-  async listPullRequests(repoId) {
+  // GitLab's MR `search` only covers title/description, so filter locally
+  // to also match iid and branch names.
+  async listPullRequests(repoId, search) {
     const mrs = await this.request(
       `/projects/${encodeURIComponent(repoId)}/merge_requests?state=opened&per_page=100`
     );
-    return mrs.map((mr) => ({
-      number: mr.iid,
-      title: mr.title,
-      sourceBranch: mr.source_branch,
-      targetBranch: mr.target_branch,
-      author: mr.author?.username
-    }));
+    return mrs
+      .filter((mr) => matches(search, mr.iid, mr.title, mr.source_branch, mr.target_branch))
+      .map((mr) => ({
+        number: mr.iid,
+        title: mr.title,
+        sourceBranch: mr.source_branch,
+        targetBranch: mr.target_branch,
+        author: mr.author?.username
+      }));
   }
 
   async getPullRequest(repoId, number) {

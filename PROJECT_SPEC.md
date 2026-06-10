@@ -137,6 +137,30 @@ Never clone a fresh repository for every review.
 
 # Review Creation Flow
 
+## Selector Search / Filtering
+
+Repositories may contain hundreds of branches and dozens of open
+PRs / MRs, so plain dropdowns are not usable.
+
+On the New Review page all three selectors must be searchable
+comboboxes with type-to-filter:
+
+- repository selector
+- base / feature branch selectors
+- pull request / merge request selector
+
+Requirements:
+
+- the user types a query and the list is filtered as they type
+  (debounced)
+- filtering is performed server-side via the `search` query parameter
+  on the corresponding API endpoints
+- providers use native API search where available (GitLab projects,
+  GitLab branches); otherwise the provider paginates through the
+  listing API and filters results server-side (GitHub)
+- matching is case-insensitive substring match; for PRs / MRs the
+  query matches number, title, source branch and target branch
+
 ## Pre-launch Confirmation
 
 A review must be launched only when the parent (base) branch has already
@@ -337,6 +361,11 @@ http POST /api/auth/login POST /api/auth/logout GET /api/auth/me
 
 http GET /api/repositories GET /api/repositories/:id/branches GET /api/repositories/:id/pull-requests
 
+All three endpoints accept an optional `search` query parameter for
+server-side filtering (case-insensitive substring match):
+
+http GET /api/repositories?search=backend GET /api/repositories/:id/branches?search=feature/login GET /api/repositories/:id/pull-requests?search=login
+
 ## Reviews
 
 http POST /api/reviews GET /api/reviews GET /api/reviews/:id POST /api/reviews/:id/cancel
@@ -372,6 +401,10 @@ Allows selecting:
 - PR/MR mode
 
 and launching review.
+
+Repository, branch and PR/MR selectors are searchable comboboxes:
+the user types a query and matching items are loaded from the server
+(see "Selector Search / Filtering").
 
 ## Review Details
 

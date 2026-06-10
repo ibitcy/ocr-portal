@@ -163,37 +163,139 @@ async function renderDashboard() {
   );
 }
 
+/**
+ * Searchable combobox: a text input with a server-filtered dropdown.
+ * loadOptions(search) must return [{ value, label, data? }].
+ */
+function createCombobox(root, { placeholder, emptyText, loadOptions, onSelect }) {
+  root.classList.add('combobox');
+  root.innerHTML = `
+    <input type="text" autocomplete="off" spellcheck="false" placeholder="${esc(placeholder || '')}" />
+    <div class="combo-list" style="display:none"></div>`;
+  const input = root.querySelector('input');
+  const list = root.querySelector('.combo-list');
+
+  let selected = null;
+  let options = [];
+  let debounceTimer = null;
+  let reqId = 0;
+  let activeIdx = -1;
+
+  const isOpen = () => list.style.display !== 'none';
+  const open = () => { list.style.display = ''; };
+  const close = () => { list.style.display = 'none'; activeIdx = -1; };
+
+  function renderList() {
+    activeIdx = -1;
+    if (!options.length) {
+      list.innerHTML = `<div class="combo-empty">${esc(emptyText || 'No matches')}</div>`;
+      return;
+    }
+    list.innerHTML = options
+      .slice(0, 200)
+      .map((o, i) => `<div class="combo-item" data-i="${i}">${esc(o.label)}</div>`)
+      .join('');
+  }
+
+  async function fetchOptions(query) {
+    const id = ++reqId;
+    list.innerHTML = '<div class="combo-empty">Loading…</div>';
+    open();
+    try {
+      const result = await loadOptions(query);
+      if (id !== reqId) return;
+      options = result;
+      renderList();
+    } catch (err) {
+      if (id !== reqId) return;
+      options = [];
+      list.innerHTML = `<div class="combo-empty error-msg" style="margin:0">${esc(err.message)}</div>`;
+    }
+  }
+
+  function choose(option) {
+    selected = option;
+    input.value = option.label;
+    close();
+    onSelect?.(option);
+  }
+
+  input.addEventListener('focus', () => {
+    // Show the unfiltered list when re-opening on an existing selection
+    const q = input.value.trim();
+    fetchOptions(selected && q === selected.label ? '' : q);
+  });
+
+  input.addEventListener('input', () => {
+    if (selected) {
+      selected = null;
+      onSelect?.(null);
+    }
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => fetchOptions(input.value.trim()), 250);
+  });
+
+  input.addEventListener('keydown', (e) => {
+    const items = list.querySelectorAll('.combo-item');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!isOpen() || !items.length) return;
+      e.preventDefault();
+      activeIdx =
+        e.key === 'ArrowDown'
+          ? Math.min(activeIdx + 1, items.length - 1)
+          : Math.max(activeIdx - 1, 0);
+      items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+      items[activeIdx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      if (isOpen() && activeIdx >= 0 && options[activeIdx]) {
+        e.preventDefault();
+        choose(options[activeIdx]);
+      }
+    } else if (e.key === 'Escape') {
+      close();
+    }
+  });
+
+  // Delay so a mousedown on a list item wins over blur
+  input.addEventListener('blur', () => setTimeout(close, 150));
+
+  list.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.combo-item');
+    if (!item) return;
+    e.preventDefault();
+    choose(options[parseInt(item.dataset.i, 10)]);
+  });
+
+  return {
+    getSelected: () => selected,
+    setSelected(option) {
+      selected = option;
+      input.value = option ? option.label : '';
+      close();
+    },
+    setDisabled(disabled) {
+      input.disabled = disabled;
+      root.classList.toggle('disabled', disabled);
+      if (disabled) close();
+    },
+    reset() {
+      selected = null;
+      options = [];
+      input.value = '';
+      close();
+    }
+  };
+}
+
 async function renderNewReview() {
   const app = document.getElementById('app');
-  app.innerHTML = layout('new', '<h1>New Review</h1><div class="muted">Loading repositories…</div>');
-  bindLogout();
-
-  let repos;
-  try {
-    repos = await api('/repositories');
-  } catch (err) {
-    app.innerHTML = layout(
-      'new',
-      `<h1>New Review</h1><div class="panel error-msg">Failed to load repositories: ${esc(err.message)}</div>`
-    );
-    bindLogout();
-    return;
-  }
 
   app.innerHTML = layout(
     'new',
     `<h1>New Review</h1>
      <div class="panel">
        <label>Repository</label>
-       <select id="repo">
-         <option value="">— select repository —</option>
-         ${repos
-           .map(
-             (r) =>
-               `<option value="${esc(r.id)}" data-name="${esc(r.name)}" data-default="${esc(r.defaultBranch || '')}">${esc(r.name)}</option>`
-           )
-           .join('')}
-       </select>
+       <div id="repo-combo"></div>
 
        <div class="mode-toggle">
          <button type="button" id="mode-branches" class="active">Branch comparison</button>
@@ -202,14 +304,14 @@ async function renderNewReview() {
 
        <div id="branches-form">
          <label>Base branch</label>
-         <select id="base-branch" disabled><option>— select repository first —</option></select>
+         <div id="base-combo"></div>
          <label>Feature branch</label>
-         <select id="feature-branch" disabled><option>— select repository first —</option></select>
+         <div id="feature-combo"></div>
        </div>
 
        <div id="pr-form" style="display:none">
          <label>Pull / Merge Request</label>
-         <select id="pr-select" disabled><option>— select repository first —</option></select>
+         <div id="pr-combo"></div>
        </div>
 
        <div class="btn-row">
@@ -233,17 +335,80 @@ async function renderNewReview() {
   bindLogout();
 
   let mode = 'branches';
-  // Defined below; hoisted wrapper so setMode can use it safely
+  let repo = null;
+  const launchBtn = document.getElementById('launch-btn');
+  const errEl = document.getElementById('new-error');
+
+  // Defined below; hoisted wrapper so combobox callbacks can use it safely
   function hideConfirmIfShown() {
     const box = document.getElementById('confirm-box');
     if (box && box.style.display !== 'none') hideConfirm();
   }
-  const repoSel = document.getElementById('repo');
-  const baseSel = document.getElementById('base-branch');
-  const featSel = document.getElementById('feature-branch');
-  const prSel = document.getElementById('pr-select');
-  const launchBtn = document.getElementById('launch-btn');
-  const errEl = document.getElementById('new-error');
+
+  const searchSuffix = (search) => (search ? `?search=${encodeURIComponent(search)}` : '');
+
+  const branchLoader = async (search) => {
+    if (!repo) return [];
+    const branches = await api(
+      `/repositories/${encodeURIComponent(repo.value)}/branches${searchSuffix(search)}`
+    );
+    return branches.map((b) => ({ value: b.name, label: b.name }));
+  };
+
+  const repoCombo = createCombobox(document.getElementById('repo-combo'), {
+    placeholder: 'Type to search repositories…',
+    emptyText: 'No repositories found',
+    loadOptions: async (search) => {
+      const repos = await api(`/repositories${searchSuffix(search)}`);
+      return repos.map((r) => ({ value: r.id, label: r.name, data: r }));
+    },
+    onSelect: (option) => {
+      hideConfirmIfShown();
+      errEl.textContent = '';
+      repo = option;
+      [baseCombo, featCombo, prCombo].forEach((c) => {
+        c.reset();
+        c.setDisabled(!option);
+      });
+      launchBtn.disabled = !option;
+      if (option?.data?.defaultBranch) {
+        baseCombo.setSelected({ value: option.data.defaultBranch, label: option.data.defaultBranch });
+      }
+    }
+  });
+
+  const baseCombo = createCombobox(document.getElementById('base-combo'), {
+    placeholder: 'Type to search branches…',
+    emptyText: 'No branches found',
+    loadOptions: branchLoader,
+    onSelect: hideConfirmIfShown
+  });
+
+  const featCombo = createCombobox(document.getElementById('feature-combo'), {
+    placeholder: 'Type to search branches…',
+    emptyText: 'No branches found',
+    loadOptions: branchLoader,
+    onSelect: hideConfirmIfShown
+  });
+
+  const prCombo = createCombobox(document.getElementById('pr-combo'), {
+    placeholder: 'Type to search by number, title or branch…',
+    emptyText: 'No open PRs / MRs found',
+    loadOptions: async (search) => {
+      if (!repo) return [];
+      const prs = await api(
+        `/repositories/${encodeURIComponent(repo.value)}/pull-requests${searchSuffix(search)}`
+      );
+      return prs.map((p) => ({
+        value: p.number,
+        label: `#${p.number} — ${p.title} (${p.sourceBranch} → ${p.targetBranch})`,
+        data: p
+      }));
+    },
+    onSelect: hideConfirmIfShown
+  });
+
+  [baseCombo, featCombo, prCombo].forEach((c) => c.setDisabled(true));
 
   function setMode(m) {
     mode = m;
@@ -256,49 +421,6 @@ async function renderNewReview() {
   document.getElementById('mode-branches').addEventListener('click', () => setMode('branches'));
   document.getElementById('mode-pr').addEventListener('click', () => setMode('pr'));
 
-  [baseSel, featSel, prSel].forEach((sel) =>
-    sel.addEventListener('change', hideConfirmIfShown)
-  );
-
-  repoSel.addEventListener('change', async () => {
-    errEl.textContent = '';
-    hideConfirmIfShown();
-    const repoId = repoSel.value;
-    if (!repoId) return;
-    launchBtn.disabled = true;
-    baseSel.disabled = featSel.disabled = prSel.disabled = true;
-    baseSel.innerHTML = featSel.innerHTML = prSel.innerHTML = '<option>Loading…</option>';
-
-    try {
-      const [branches, prs] = await Promise.all([
-        api(`/repositories/${encodeURIComponent(repoId)}/branches`),
-        api(`/repositories/${encodeURIComponent(repoId)}/pull-requests`)
-      ]);
-
-      const defaultBranch = repoSel.selectedOptions[0]?.dataset.default;
-      const opts = branches
-        .map((b) => `<option value="${esc(b.name)}">${esc(b.name)}</option>`)
-        .join('');
-      baseSel.innerHTML = opts;
-      featSel.innerHTML = opts;
-      if (defaultBranch) baseSel.value = defaultBranch;
-
-      prSel.innerHTML = prs.length
-        ? prs
-            .map(
-              (p) =>
-                `<option value="${p.number}" data-source="${esc(p.sourceBranch)}" data-target="${esc(p.targetBranch)}">#${p.number} — ${esc(p.title)} (${esc(p.sourceBranch)} → ${esc(p.targetBranch)})</option>`
-            )
-            .join('')
-        : '<option value="">No open PRs / MRs</option>';
-
-      baseSel.disabled = featSel.disabled = prSel.disabled = false;
-      launchBtn.disabled = false;
-    } catch (err) {
-      errEl.textContent = err.message;
-    }
-  });
-
   const confirmBox = document.getElementById('confirm-box');
   const confirmText = document.getElementById('confirm-text');
   let pendingBody = null;
@@ -306,35 +428,44 @@ async function renderNewReview() {
   function hideConfirm() {
     pendingBody = null;
     confirmBox.style.display = 'none';
-    launchBtn.disabled = false;
+    launchBtn.disabled = !repo;
   }
 
   // Step 1: validate the selection and show the merge warning
   launchBtn.addEventListener('click', () => {
     errEl.textContent = '';
-    const opt = repoSel.selectedOptions[0];
+    if (!repo) {
+      errEl.textContent = 'Select a repository';
+      return;
+    }
     const body = {
-      repositoryId: repoSel.value,
-      repositoryName: opt.dataset.name,
+      repositoryId: repo.value,
+      repositoryName: repo.data.name,
       mode
     };
 
     let base;
     let feature;
     if (mode === 'branches') {
-      base = baseSel.value;
-      feature = featSel.value;
+      const b = baseCombo.getSelected();
+      const f = featCombo.getSelected();
+      if (!b || !f) {
+        errEl.textContent = 'Select both base and feature branches';
+        return;
+      }
+      base = b.value;
+      feature = f.value;
       body.baseBranch = base;
       body.featureBranch = feature;
     } else {
-      if (!prSel.value) {
+      const p = prCombo.getSelected();
+      if (!p) {
         errEl.textContent = 'No PR/MR selected';
         return;
       }
-      body.prNumber = parseInt(prSel.value, 10);
-      const prOpt = prSel.selectedOptions[0];
-      base = prOpt.dataset.target;
-      feature = prOpt.dataset.source;
+      body.prNumber = p.value;
+      base = p.data.targetBranch;
+      feature = p.data.sourceBranch;
     }
 
     pendingBody = body;
