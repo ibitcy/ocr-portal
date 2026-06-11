@@ -521,27 +521,51 @@ function findingText(f) {
   return f.content || f.comment || f.message || f.body || f.description || '';
 }
 
+/**
+ * Content lines of a unified diff with metadata (---/+++/@@) stripped.
+ * Shared by the Review Details rendering and "Copy review".
+ */
+function diffContentLines(diff) {
+  return String(diff)
+    .split('\n')
+    .filter(
+      (line) => !line.startsWith('--- ') && !line.startsWith('+++ ') && !line.startsWith('@@')
+    );
+}
+
 /** Plain-text representation of a single finding, used by "Copy review". */
-function findingToPlainText(f) {
+function findingToPlainText(f, suggestion) {
   const parts = [`─── ${findingLocation(f) || 'general'} ───`, ''];
   const text = findingText(f);
   if (text) parts.push(text, '');
-  if (f.existing_code) parts.push('Existing code:', f.existing_code, '');
-  if (f.suggestion_code) parts.push('Suggestion code:', f.suggestion_code, '');
+  if (suggestion) {
+    parts.push('Suggested change:', diffContentLines(suggestion.diff).join('\n'), '');
+  } else {
+    if (f.existing_code) parts.push('Existing code:', f.existing_code, '');
+    if (f.suggestion_code) parts.push('Suggestion code:', f.suggestion_code, '');
+  }
   return parts.join('\n').trimEnd();
 }
 
-function buildReviewText(findings) {
-  return findings.map(findingToPlainText).join('\n\n');
+function buildReviewText(findings, diffByFinding) {
+  return findings.map((f, i) => findingToPlainText(f, diffByFinding?.get(i))).join('\n\n');
+}
+
+/** Plain text for diffs recovered from raw (non-JSON) OCR output. */
+function buildSuggestionsText(suggestions) {
+  return suggestions
+    .map((s) => {
+      const parts = [`─── ${s.location || 'general'} ───`, ''];
+      if (s.text) parts.push(s.text, '');
+      parts.push('Suggested change:', diffContentLines(s.diff).join('\n'));
+      return parts.join('\n').trimEnd();
+    })
+    .join('\n\n');
 }
 
 /** Git-style rendering of a unified diff; metadata lines are stripped. */
 function renderDiffHtml(diff) {
-  const lines = String(diff)
-    .split('\n')
-    .filter(
-      (line) => !line.startsWith('--- ') && !line.startsWith('+++ ') && !line.startsWith('@@')
-    )
+  const lines = diffContentLines(diff)
     .map((line) => {
       let cls = '';
       if (line.startsWith('+')) cls = 'add';
@@ -638,7 +662,11 @@ async function renderReviewDetails(id) {
       : textSuggestions.length
         ? renderTextSuggestions(textSuggestions)
         : null;
-    const copyText = findings ? buildReviewText(findings) : (result?.raw_stdout || '').trim();
+    const copyText = findings
+      ? buildReviewText(findings, diffByFinding)
+      : textSuggestions.length
+        ? buildSuggestionsText(textSuggestions)
+        : (result?.raw_stdout || '').trim();
 
     app.innerHTML = layout(
       'dashboard',
