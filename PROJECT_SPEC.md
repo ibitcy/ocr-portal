@@ -384,9 +384,14 @@ Store:
 - pull request information
 - OCR output (raw)
 - parsed suggestions with generated diffs
+- token usage (input / output / total tokens), when reported by OCR
 - execution logs
 - execution time
 - user
+
+Token usage is optional: if it is not present in the OCR output the
+UI shows "Tokens: N/A". Token parsing failures must never fail the
+review job; a warning is logged and the raw OCR output is kept.
 
 Example:
 
@@ -410,7 +415,7 @@ text id repository_id user_id status created_at started_at finished_at
 
 ## review_results
 
-text id review_job_id ocr_output_json suggestions_json summary created_at
+text id review_job_id ocr_output_json suggestions_json input_tokens output_tokens total_tokens summary created_at
 
 ---
 
@@ -441,6 +446,11 @@ http GET /api/admin/users POST /api/admin/users PATCH /api/admin/users/:id DELET
 
 # UI Pages
 
+All dates are displayed in European format with 24-hour time, using a
+single shared formatter:
+
+text 11/06/2026, 17:19:21
+
 ## Login
 
 Email/password authentication.
@@ -452,7 +462,7 @@ and who started each of them.
 
 Displays:
 
-- recent reviews
+- recent reviews (including total token usage per review)
 - review statistics
 
 ## New Review
@@ -478,6 +488,7 @@ Displays:
 - OCR output (suggestions rendered as git-style diffs, raw output as
   fallback)
 - execution metadata
+- token usage next to duration ("Tokens: N/A" when unavailable)
 
 ## Administration
 

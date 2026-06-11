@@ -59,10 +59,25 @@ async function processReview(job) {
     const suggestions = buildSuggestions({ parsed, rawStdout: stdout });
     if (suggestions) await log(`Generated diffs for ${suggestions.length} suggestion(s)`);
 
+    // Token usage is optional; parsing failures must never fail the review
+    let tokenUsage = null;
+    try {
+      tokenUsage = ocrRunner.parseTokenUsage(parsed);
+      if (tokenUsage) {
+        await log(
+          `Token usage: input=${tokenUsage.inputTokens ?? 'n/a'}, ` +
+            `output=${tokenUsage.outputTokens ?? 'n/a'}, total=${tokenUsage.totalTokens ?? 'n/a'}`
+        );
+      }
+    } catch (err) {
+      await log(`Warning: token usage parsing failed: ${err.message}`);
+    }
+
     await reviews.saveResult({
       jobId: reviewJobId,
       ocrOutputJson: parsed,
       suggestionsJson: suggestions,
+      tokenUsage,
       rawStdout: stdout,
       rawStderr: stderr,
       exitCode,

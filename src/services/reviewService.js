@@ -51,10 +51,16 @@ async function listJobs({ limit = 100 } = {}) {
   const { rows } = await pool.query(
     `SELECT j.id, j.mode, j.base_branch, j.feature_branch, j.pr_number, j.pr_title,
             j.status, j.created_at, j.started_at, j.finished_at, j.duration_seconds,
-            r.name AS repository_name, u.email AS user_email
+            r.name AS repository_name, u.email AS user_email,
+            res.total_tokens
        FROM review_jobs j
        JOIN repositories r ON r.id = j.repository_id
        JOIN users u ON u.id = j.user_id
+       LEFT JOIN LATERAL (
+         SELECT total_tokens FROM review_results
+          WHERE review_job_id = j.id
+          ORDER BY id DESC LIMIT 1
+       ) res ON true
       ORDER BY j.id DESC
       LIMIT $1`,
     [limit]
@@ -81,15 +87,29 @@ async function setStatus(jobId, status, extra = {}) {
   await pool.query(`UPDATE review_jobs SET ${sets.join(', ')} WHERE id = $1`, params);
 }
 
-async function saveResult({ jobId, ocrOutputJson, suggestionsJson, rawStdout, rawStderr, exitCode, summary }) {
+async function saveResult({
+  jobId,
+  ocrOutputJson,
+  suggestionsJson,
+  tokenUsage,
+  rawStdout,
+  rawStderr,
+  exitCode,
+  summary
+}) {
   await pool.query(
     `INSERT INTO review_results
-       (review_job_id, ocr_output_json, suggestions_json, raw_stdout, raw_stderr, exit_code, summary)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (review_job_id, ocr_output_json, suggestions_json,
+        input_tokens, output_tokens, total_tokens,
+        raw_stdout, raw_stderr, exit_code, summary)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
       jobId,
       ocrOutputJson ? JSON.stringify(ocrOutputJson) : null,
       suggestionsJson ? JSON.stringify(suggestionsJson) : null,
+      tokenUsage?.inputTokens ?? null,
+      tokenUsage?.outputTokens ?? null,
+      tokenUsage?.totalTokens ?? null,
       rawStdout,
       rawStderr,
       exitCode,

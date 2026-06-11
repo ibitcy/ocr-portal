@@ -73,6 +73,49 @@ class OcrRunner {
     return true;
   }
 
+  /**
+   * Try to extract token usage from parsed OCR output.
+   *
+   * OCR (`ocr review --format json`) reports tokens in the `summary` object:
+   *   { "summary": { "total_tokens": N, "input_tokens": N, "output_tokens": N, ... } }
+   * (see cmd/opencodereview/output.go in alibaba/open-code-review).
+   * Other common locations are checked as a fallback.
+   *
+   * Returns { inputTokens, outputTokens, totalTokens } or null.
+   */
+  parseTokenUsage(parsed) {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+    const usage =
+      parsed.summary ||
+      parsed.usage ||
+      parsed.token_usage ||
+      parsed.tokenUsage ||
+      parsed.tokens ||
+      parsed.meta?.usage ||
+      parsed.stats?.usage;
+    if (!usage || typeof usage !== 'object') return null;
+
+    const toInt = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+    };
+
+    const inputTokens = toInt(
+      usage.input_tokens ?? usage.prompt_tokens ?? usage.inputTokens ?? usage.promptTokens ?? usage.input
+    );
+    const outputTokens = toInt(
+      usage.output_tokens ?? usage.completion_tokens ?? usage.outputTokens ?? usage.completionTokens ?? usage.output
+    );
+    let totalTokens = toInt(usage.total_tokens ?? usage.totalTokens ?? usage.total);
+    if (totalTokens == null && (inputTokens != null || outputTokens != null)) {
+      totalTokens = (inputTokens || 0) + (outputTokens || 0);
+    }
+
+    if (inputTokens == null && outputTokens == null && totalTokens == null) return null;
+    return { inputTokens, outputTokens, totalTokens };
+  }
+
   /** Try to extract the JSON document from OCR stdout. */
   parseOutput(stdout) {
     const text = (stdout || '').trim();

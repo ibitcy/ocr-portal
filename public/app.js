@@ -26,8 +26,19 @@ function esc(s) {
   );
 }
 
+// European format: DD/MM/YYYY, 24-hour time (e.g. 11/06/2026, 17:19:21)
 function fmtDate(d) {
-  return d ? new Date(d).toLocaleString() : '—';
+  return d ? new Date(d).toLocaleString('en-GB') : '—';
+}
+
+function fmtTokens(input, output, total) {
+  if (input == null && output == null && total == null) return 'N/A';
+  const n = (v) => Number(v).toLocaleString('en-GB');
+  const parts = [];
+  if (input != null) parts.push(`${n(input)} in`);
+  if (output != null) parts.push(`${n(output)} out`);
+  if (total != null) parts.push(`${n(total)} total`);
+  return parts.join(' / ');
 }
 
 function badge(status) {
@@ -133,6 +144,7 @@ async function renderDashboard() {
         <td>${esc(j.user_email)}</td>
         <td>${fmtDate(j.created_at)}</td>
         <td>${j.duration_seconds != null ? j.duration_seconds + 's' : '—'}</td>
+        <td>${j.total_tokens != null ? Number(j.total_tokens).toLocaleString('en-GB') : 'N/A'}</td>
       </tr>`
     )
     .join('');
@@ -151,7 +163,7 @@ async function renderDashboard() {
        ${
          jobs.length
            ? `<table>
-                <thead><tr><th>ID</th><th>Repository</th><th>Diff</th><th>Status</th><th>User</th><th>Created</th><th>Duration</th></tr></thead>
+                <thead><tr><th>ID</th><th>Repository</th><th>Diff</th><th>Status</th><th>User</th><th>Created</th><th>Duration</th><th>Tokens</th></tr></thead>
                 <tbody>${rows}</tbody>
               </table>`
            : '<div class="empty">No reviews yet. Create your first one!</div>'
@@ -682,6 +694,7 @@ async function renderReviewDetails(id) {
            <div class="k">Started</div><div>${fmtDate(job.started_at)}</div>
            <div class="k">Finished</div><div>${fmtDate(job.finished_at)}</div>
            <div class="k">Duration</div><div>${job.duration_seconds != null ? job.duration_seconds + 's' : '—'}</div>
+           <div class="k">Tokens</div><div>${fmtTokens(result?.input_tokens, result?.output_tokens, result?.total_tokens)}</div>
            ${job.error ? `<div class="k">Error</div><div class="error-msg" style="margin:0">${esc(job.error)}</div>` : ''}
          </div>
          ${canCancel ? `<div class="btn-row"><button class="danger" id="cancel-btn">Cancel review</button></div>` : ''}
