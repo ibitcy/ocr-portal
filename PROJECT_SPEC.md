@@ -238,6 +238,53 @@ and store results.
 
 ---
 
+# Suggestion Diff Rendering
+
+OCR findings contain code suggestion blocks:
+
+text EXISTING CODE: ... SUGGESTION CODE: ...
+
+Example OCR output:
+
+text EXISTING CODE: <img src="logo.png" width="120" height="40"> SUGGESTION CODE: <img src="logo.png" alt="Company logo" width="120" height="40">
+
+The portal must display such suggestions as git-style diffs:
+
+text - <img src="logo.png" width="120" height="40"> + <img src="logo.png" alt="Company logo" width="120" height="40">
+
+Implementation:
+
+- diffs are generated server-side with the `diff` npm package when the
+  review result is saved
+- suggestion blocks are taken from parsed OCR JSON findings
+  (`existing_code` / `suggestion_code`); when JSON parsing fails, the
+  raw OCR output is scanned for `EXISTING CODE:` / `SUGGESTION CODE:`
+  text blocks
+- unified diffs are generated per suggestion
+
+The system must store:
+
+- raw OCR output
+- parsed suggestions
+- generated diff (unified format)
+
+When rendering suggestions, the UI must strip all unified diff
+metadata lines and show only the actual diff content lines:
+
+- lines starting with `--- `
+- lines starting with `+++ `
+- lines starting with `@@`
+
+If suggestion parsing or diff generation fails, the UI falls back to
+the raw OCR output. Diff generation failures must never fail the
+review job.
+
+Diffs must NOT be included in Slack notifications. Slack messages
+remain short: review status, repository, branches, duration and the
+review URL only.
+
+---
+
 # LLM Configuration
 
 Configuration through environment variables:
@@ -335,7 +382,8 @@ Store:
 - repository
 - branch information
 - pull request information
-- OCR output
+- OCR output (raw)
+- parsed suggestions with generated diffs
 - execution logs
 - execution time
 - user
@@ -362,7 +410,7 @@ text id repository_id user_id status created_at started_at finished_at
 
 ## review_results
 
-text id review_job_id ocr_output_json summary created_at
+text id review_job_id ocr_output_json suggestions_json summary created_at
 
 ---
 
@@ -427,7 +475,8 @@ Displays:
 
 - status
 - logs
-- OCR output
+- OCR output (suggestions rendered as git-style diffs, raw output as
+  fallback)
 - execution metadata
 
 ## Administration

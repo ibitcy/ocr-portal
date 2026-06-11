@@ -81,12 +81,20 @@ async function setStatus(jobId, status, extra = {}) {
   await pool.query(`UPDATE review_jobs SET ${sets.join(', ')} WHERE id = $1`, params);
 }
 
-async function saveResult({ jobId, ocrOutputJson, rawStdout, rawStderr, exitCode, summary }) {
+async function saveResult({ jobId, ocrOutputJson, suggestionsJson, rawStdout, rawStderr, exitCode, summary }) {
   await pool.query(
     `INSERT INTO review_results
-       (review_job_id, ocr_output_json, raw_stdout, raw_stderr, exit_code, summary)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [jobId, ocrOutputJson ? JSON.stringify(ocrOutputJson) : null, rawStdout, rawStderr, exitCode, summary]
+       (review_job_id, ocr_output_json, suggestions_json, raw_stdout, raw_stderr, exit_code, summary)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      jobId,
+      ocrOutputJson ? JSON.stringify(ocrOutputJson) : null,
+      suggestionsJson ? JSON.stringify(suggestionsJson) : null,
+      rawStdout,
+      rawStderr,
+      exitCode,
+      summary
+    ]
   );
 }
 

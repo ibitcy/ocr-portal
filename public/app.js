@@ -535,18 +535,52 @@ function buildReviewText(findings) {
   return findings.map(findingToPlainText).join('\n\n');
 }
 
-function renderFindings(findings) {
+/** Git-style rendering of a unified diff; metadata lines are stripped. */
+function renderDiffHtml(diff) {
+  const lines = String(diff)
+    .split('\n')
+    .filter(
+      (line) => !line.startsWith('--- ') && !line.startsWith('+++ ') && !line.startsWith('@@')
+    )
+    .map((line) => {
+      let cls = '';
+      if (line.startsWith('+')) cls = 'add';
+      else if (line.startsWith('-')) cls = 'del';
+      return `<span class="diff-line ${cls}">${esc(line) || ' '}</span>`;
+    });
+  return `<pre class="code diff">${lines.join('')}</pre>`;
+}
+
+function renderFindings(findings, diffByFinding) {
   return findings
-    .map((f) => {
+    .map((f, i) => {
       const loc = findingLocation(f);
       const text = findingText(f) || JSON.stringify(f, null, 2);
+      const suggestion = diffByFinding?.get(i);
+      const codeHtml = suggestion
+        ? `<div class="code-label">Suggested change:</div>${renderDiffHtml(suggestion.diff)}`
+        : `${f.existing_code ? `<div class="code-label">Existing code:</div><pre class="code">${esc(f.existing_code)}</pre>` : ''}
+           ${f.suggestion_code ? `<div class="code-label">Suggestion code:</div><pre class="code suggestion">${esc(f.suggestion_code)}</pre>` : ''}`;
       return `<div class="finding">
         ${loc ? `<div class="loc">─── ${esc(loc)} ───</div>` : ''}
         <div class="body">${esc(text)}</div>
-        ${f.existing_code ? `<div class="code-label">Existing code:</div><pre class="code">${esc(f.existing_code)}</pre>` : ''}
-        ${f.suggestion_code ? `<div class="code-label">Suggestion code:</div><pre class="code suggestion">${esc(f.suggestion_code)}</pre>` : ''}
+        ${codeHtml}
       </div>`;
     })
+    .join('');
+}
+
+/** Suggestion cards for diffs recovered from raw (non-JSON) OCR output. */
+function renderTextSuggestions(suggestions) {
+  return suggestions
+    .map(
+      (s) => `<div class="finding">
+        ${s.location ? `<div class="loc">─── ${esc(s.location)} ───</div>` : ''}
+        ${s.text ? `<div class="body">${esc(s.text)}</div>` : ''}
+        <div class="code-label">Suggested change:</div>
+        ${renderDiffHtml(s.diff)}
+      </div>`
+    )
     .join('');
 }
 
@@ -589,7 +623,21 @@ async function renderReviewDetails(id) {
     const result = job.result;
     const parsed = result?.ocr_output_json;
     const findings = extractFindings(parsed);
-    const findingsHtml = findings ? renderFindings(findings) : null;
+
+    const diffByFinding = new Map();
+    const textSuggestions = [];
+    if (Array.isArray(result?.suggestions_json)) {
+      for (const s of result.suggestions_json) {
+        if (s.findingIndex != null) diffByFinding.set(s.findingIndex, s);
+        else textSuggestions.push(s);
+      }
+    }
+
+    const findingsHtml = findings
+      ? renderFindings(findings, diffByFinding)
+      : textSuggestions.length
+        ? renderTextSuggestions(textSuggestions)
+        : null;
     const copyText = findings ? buildReviewText(findings) : (result?.raw_stdout || '').trim();
 
     app.innerHTML = layout(

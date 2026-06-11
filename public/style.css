@@ -242,6 +242,17 @@ pre.logs {
 }
 .finding pre.code.suggestion { border-left: 3px solid var(--green); }
 
+/* Git-style suggestion diffs */
+pre.code.diff { padding: 0; }
+.diff-line {
+  display: block;
+  padding: 1px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.diff-line.add { background: rgba(63, 185, 80, 0.15); color: #7ee2a8; }
+.diff-line.del { background: rgba(248, 81, 73, 0.15); color: #ffa198; }
+
 .result-head {
   display: flex;
   align-items: center;

@@ -7,6 +7,7 @@ const RepoCache = require('../services/repoCache');
 const ocrRunner = require('../services/ocrRunner');
 const reviews = require('../services/reviewService');
 const slackNotifier = require('../services/slackNotifier');
+const { buildSuggestions } = require('../services/suggestionDiff');
 
 const repoCache = new RepoCache(provider);
 
@@ -54,10 +55,14 @@ async function processReview(job) {
 
     const parsed = ocrRunner.parseOutput(stdout);
     const summary = buildSummary(parsed, exitCode);
+    // Best-effort: returns null on failure, the UI then falls back to raw output
+    const suggestions = buildSuggestions({ parsed, rawStdout: stdout });
+    if (suggestions) await log(`Generated diffs for ${suggestions.length} suggestion(s)`);
 
     await reviews.saveResult({
       jobId: reviewJobId,
       ocrOutputJson: parsed,
+      suggestionsJson: suggestions,
       rawStdout: stdout,
       rawStderr: stderr,
       exitCode,
