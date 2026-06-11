@@ -43,6 +43,7 @@ function navigate(hash) {
 
 function layout(active, content) {
   const isAdmin = state.user?.role === 'admin';
+  const isViewer = state.user?.role === 'viewer';
   const link = (href, label, key) =>
     `<a class="nav-link ${active === key ? 'active' : ''}" href="${href}">${label}</a>`;
   return `
@@ -50,7 +51,7 @@ function layout(active, content) {
       <nav class="sidebar">
         <div class="brand">AI <span>Review</span> Hub</div>
         ${link('#/', 'Dashboard', 'dashboard')}
-        ${link('#/new', 'New Review', 'new')}
+        ${isViewer ? '' : link('#/new', 'New Review', 'new')}
         ${isAdmin ? link('#/admin', 'Administration', 'admin') : ''}
         <div class="spacer"></div>
         <div class="user-box">
@@ -581,7 +582,10 @@ async function renderReviewDetails(id) {
     }
 
     const isActive = ['pending', 'running'].includes(job.status);
-    const canCancel = isActive && (state.user.role === 'admin' || job.user_id === state.user.id);
+    const canCancel =
+      isActive &&
+      state.user.role !== 'viewer' &&
+      (state.user.role === 'admin' || job.user_id === state.user.id);
     const result = job.result;
     const parsed = result?.ocr_output_json;
     const findings = extractFindings(parsed);
@@ -696,6 +700,7 @@ async function renderAdmin() {
                      <select class="role-select" data-id="${u.id}" ${self ? 'disabled title="You cannot change your own role"' : ''} style="width:auto">
                        <option value="user" ${u.role === 'user' ? 'selected' : ''}>user</option>
                        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>admin</option>
+                       <option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>viewer</option>
                      </select>
                    </td>
                    <td>${fmtDate(u.created_at)}</td>
@@ -724,6 +729,7 @@ async function renderAdmin() {
              <select id="new-user-role">
                <option value="user" selected>user</option>
                <option value="admin">admin</option>
+               <option value="viewer">viewer</option>
              </select>
            </div>
            <div>
@@ -845,8 +851,10 @@ async function render() {
 
   const reviewMatch = hash.match(/^#\/review\/(\d+)$/);
   if (hash === '#/') await renderDashboard();
-  else if (hash === '#/new') await renderNewReview();
-  else if (hash === '#/admin') await renderAdmin();
+  else if (hash === '#/new') {
+    if (state.user.role === 'viewer') navigate('#/');
+    else await renderNewReview();
+  } else if (hash === '#/admin') await renderAdmin();
   else if (reviewMatch) await renderReviewDetails(reviewMatch[1]);
   else navigate('#/');
 }

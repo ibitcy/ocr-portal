@@ -283,6 +283,21 @@ Can:
 - view all reviews on the dashboard (including who started each review)
 - cancel only own reviews
 
+## Viewer
+
+Read-only role.
+
+Can:
+
+- view the dashboard and all reviews (including who started each review)
+- view review details, logs and results
+
+Cannot:
+
+- create reviews (the New Review page is hidden in the UI and
+  `POST /api/reviews` returns 403)
+- cancel reviews
+
 ---
 
 # User Management

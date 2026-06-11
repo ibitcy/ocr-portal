@@ -9,7 +9,7 @@ const { requireAdmin } = require('../auth');
 const router = express.Router();
 router.use(requireAdmin);
 
-const VALID_ROLES = ['admin', 'user'];
+const VALID_ROLES = ['admin', 'user', 'viewer'];
 const MIN_PASSWORD_LENGTH = 8;
 
 router.get('/users', async (req, res, next) => {
@@ -37,7 +37,7 @@ router.post('/users', async (req, res, next) => {
         .json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
     }
     if (!VALID_ROLES.includes(role)) {
-      return res.status(400).json({ error: 'Role must be "admin" or "user"' });
+      return res.status(400).json({ error: 'Role must be "admin", "user" or "viewer"' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -66,7 +66,7 @@ router.patch('/users/:id', async (req, res, next) => {
       return res.status(400).json({ error: 'Nothing to update: provide role and/or password' });
     }
     if (role !== undefined && !VALID_ROLES.includes(role)) {
-      return res.status(400).json({ error: 'Role must be "admin" or "user"' });
+      return res.status(400).json({ error: 'Role must be "admin", "user" or "viewer"' });
     }
     if (password !== undefined && password.length < MIN_PASSWORD_LENGTH) {
       return res

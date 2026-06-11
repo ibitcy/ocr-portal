@@ -37,6 +37,15 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+/** Blocks read-only viewers from write actions such as creating reviews. */
+function requireNonViewer(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  if (req.user.role === 'viewer') {
+    return res.status(403).json({ error: 'Viewers are not allowed to perform this action' });
+  }
+  next();
+}
+
 const router = express.Router();
 
 router.post('/login', async (req, res, next) => {
@@ -89,4 +98,4 @@ router.get('/me', (req, res) => {
   res.json(req.user);
 });
 
-module.exports = { router, loadSession, requireAuth, requireAdmin };
+module.exports = { router, loadSession, requireAuth, requireAdmin, requireNonViewer };

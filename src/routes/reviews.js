@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { provider } = require('../providers');
-const { requireAuth } = require('../auth');
+const { requireAuth, requireNonViewer } = require('../auth');
 const reviews = require('../services/reviewService');
 const { enqueueReview } = require('../queue/queue');
 const ocrRunner = require('../services/ocrRunner');
@@ -11,7 +11,7 @@ const slackNotifier = require('../services/slackNotifier');
 const router = express.Router();
 router.use(requireAuth);
 
-router.post('/', async (req, res, next) => {
+router.post('/', requireNonViewer, async (req, res, next) => {
   try {
     const {
       repositoryId,
@@ -98,7 +98,7 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-router.post('/:id/cancel', async (req, res, next) => {
+router.post('/:id/cancel', requireNonViewer, async (req, res, next) => {
   try {
     const job = await reviews.getJob(req.params.id);
     if (!job) return res.status(404).json({ error: 'Review not found' });
